@@ -1,0 +1,18 @@
+services:
+  authservice:
+    image: authservice:latest
+    ports:
+      - "8082:8082"
+    networks:
+      - telegram-parser-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+networks:
+  telegram-parser-network:
+    driver: overlay
