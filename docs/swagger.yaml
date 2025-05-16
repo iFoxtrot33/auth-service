@@ -1,0 +1,110 @@
+definitions:
+  auth.AccessResponse:
+    properties:
+      access_token:
+        type: string
+    type: object
+  auth.ErrorResponse:
+    properties:
+      error:
+        example: Invalid provider
+        type: string
+    type: object
+info:
+  contact: {}
+  title: Auth Service API
+  version: "1.0"
+paths:
+  /api/v1/access:
+    get:
+      consumes:
+      - application/json
+      description: Exchanges the OAuth code for user info and returns a JWT access
+        token
+      parameters:
+      - description: OAuth provider (e.g., google)
+        in: query
+        name: provider
+        required: true
+        type: string
+      - description: OAuth state parameter
+        in: query
+        name: state
+        required: true
+        type: string
+      - description: OAuth authorization code
+        in: query
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: JWT access token
+          schema:
+            $ref: '#/definitions/auth.AccessResponse'
+        "400":
+          description: Provider not specified, invalid state, or code not specified
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+        "500":
+          description: Authentication failed or failed to create access token
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+      summary: Complete OAuth authentication
+      tags:
+      - auth
+  /api/v1/login:
+    get:
+      consumes:
+      - application/json
+      description: Redirects the user to the OAuth provider's authentication URL
+      parameters:
+      - description: OAuth provider (e.g., google)
+        in: query
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "307":
+          description: Redirect to provider's auth URL
+          schema:
+            type: string
+        "400":
+          description: Provider not specified or invalid provider
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+      summary: Initiate OAuth login
+      tags:
+      - auth
+  /api/v1/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Refreshes the access token using a refresh token
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: New JWT access token
+          schema:
+            $ref: '#/definitions/auth.AccessResponse'
+        "400":
+          description: Invalid refresh token
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+        "500":
+          description: Failed to create new token
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+      summary: Refresh JWT token
+      tags:
+      - auth
+swagger: "2.0"

@@ -2,11 +2,15 @@ services:
   authservice:
     image: authservice:latest
     ports:
-      - "8082:8082"
+      - target: 8082
+        published: 8082
+        protocol: tcp
+        mode: host
     networks:
       - telegram-parser-network
+    privileged: true
     deploy:
-      replicas: 2
+      replicas: 1
       restart_policy:
         condition: on-failure
       resources:
@@ -16,3 +20,4 @@ services:
 networks:
   telegram-parser-network:
     driver: overlay
+    attachable: true

@@ -8,10 +8,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func NewLogger(cfg *configs.Config) *zerolog.Logger {
+type Logger = zerolog.Logger
+
+func NewLogger(cfg *configs.Config) *Logger {
 	zerolog.SetGlobalLevel(zerolog.Level(cfg.Logger.Level))
 
-	var logger zerolog.Logger
+	var logger Logger
 
 	if cfg.Logger.Format == "json" {
 		logger = zerolog.New(os.Stderr).With().Timestamp().Logger()

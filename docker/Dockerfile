@@ -18,6 +18,7 @@ RUN apk add --no-cache libc6-compat gcompat
 COPY --from=builder /go/bin/authservice /app/
 
 COPY --from=builder /app/config /app/config
+COPY --from=builder /app/.env.local /app/.env.local
 
 EXPOSE 8082
 
