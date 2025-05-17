@@ -57,13 +57,15 @@ func (g *GoogleOAuthConfig) GetOAuthConfig() *oauth2.Config {
 	clientID := g.ClientID
 	clientSecret := g.ClientSecret
 
-	if envClientID := os.Getenv("GOOGLE_CLIENT_ID"); envClientID != "" {
+	envClientID := os.Getenv("GOOGLE_CLIENT_ID")
+	if envClientID != "" {
 		clientID = envClientID
 	} else {
 		fmt.Println("WARNING: GOOGLE_CLIENT_ID not found in environment variables!")
 	}
 
-	if envClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET"); envClientSecret != "" {
+	envClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	if envClientSecret != "" {
 		clientSecret = envClientSecret
 	} else {
 		fmt.Println("WARNING: GOOGLE_CLIENT_SECRET not found in environment variables!")
@@ -80,7 +82,8 @@ func (g *GoogleOAuthConfig) GetOAuthConfig() *oauth2.Config {
 
 func (j *JWTConfig) GetSecret() string {
 	secret := j.Secret
-	if envSecret := os.Getenv("JWT_SECRET"); envSecret != "" {
+	envSecret := os.Getenv("JWT_SECRET")
+	if envSecret != "" {
 		secret = envSecret
 	}
 	return secret
