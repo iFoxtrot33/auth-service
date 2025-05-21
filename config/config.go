@@ -36,57 +36,59 @@ type CORSConfig struct {
 
 type AuthConfig struct {
 	Google GoogleOAuthConfig `yaml:"google"`
+	GitHub GitHubOAuthConfig `yaml:"github"`
 	JWT    JWTConfig         `yaml:"jwt"`
 }
 
 type GoogleOAuthConfig struct {
-	ClientID     string   `yaml:"client_id" env:"GOOGLE_CLIENT_ID"`
-	ClientSecret string   `yaml:"client_secret" env:"GOOGLE_CLIENT_SECRET"`
+	ClientID     string   `yaml:"client_id" env:"GOOGLE_CLIENT_ID" env-required:"true`
+	ClientSecret string   `yaml:"client_secret" env:"GOOGLE_CLIENT_SECRET" env-required:"true`
+	RedirectURL  string   `yaml:"redirect_url"`
+	Scopes       []string `yaml:"scopes"`
+}
+
+type GitHubOAuthConfig struct {
+	ClientID     string   `yaml:"client_id" env:"GITHUB_CLIENT_ID" env-required:"true`
+	ClientSecret string   `yaml:"client_secret" env:"GITHUB_CLIENT_SECRET" env-required:"true`
 	RedirectURL  string   `yaml:"redirect_url"`
 	Scopes       []string `yaml:"scopes"`
 }
 
 type JWTConfig struct {
-	Secret           string `yaml:"secret" env:"JWT_SECRET"`
+	Secret           string `yaml:"secret" env:"JWT_SECRET" env-required:"true`
 	AccessExpiresIn  int64  `yaml:"access_expires_in"`
 	RefreshExpiresIn int64  `yaml:"refresh_expires_in"`
 }
 
 func (g *GoogleOAuthConfig) GetOAuthConfig() *oauth2.Config {
-
-	clientID := g.ClientID
-	clientSecret := g.ClientSecret
-
-	envClientID := os.Getenv("GOOGLE_CLIENT_ID")
-	if envClientID != "" {
-		clientID = envClientID
-	} else {
-		fmt.Println("WARNING: GOOGLE_CLIENT_ID not found in environment variables!")
-	}
-
-	envClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-	if envClientSecret != "" {
-		clientSecret = envClientSecret
-	} else {
-		fmt.Println("WARNING: GOOGLE_CLIENT_SECRET not found in environment variables!")
-	}
-
 	return &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
+		ClientID:     g.ClientID,
+		ClientSecret: g.ClientSecret,
 		RedirectURL:  g.RedirectURL,
 		Scopes:       g.Scopes,
 		Endpoint:     google.Endpoint,
 	}
 }
 
-func (j *JWTConfig) GetSecret() string {
-	secret := j.Secret
-	envSecret := os.Getenv("JWT_SECRET")
-	if envSecret != "" {
-		secret = envSecret
+func (g *GitHubOAuthConfig) GetOAuthConfig() *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:     g.ClientID,
+		ClientSecret: g.ClientSecret,
+		RedirectURL:  g.RedirectURL,
+		Scopes:       g.Scopes,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://github.com/login/oauth/authorize",
+			TokenURL: "https://github.com/login/oauth/access_token",
+		},
 	}
-	return secret
+}
+
+func (j *JWTConfig) GetSecret() string {
+	return j.Secret
+}
+
+func (c *Config) GetEnvironment() string {
+	return c.Environment
 }
 
 func Init() *Config {
@@ -106,15 +108,8 @@ func Init() *Config {
 		panic(fmt.Sprintf("Failed to read config file: %s", err))
 	}
 
-	envFile := ".env"
-	if cfg.Environment == "local" {
-		envFile = ".env.local"
-	} else if cfg.Environment == "production" {
-		envFile = ".env.production"
-	}
-
-	if err := godotenv.Load(envFile); err != nil {
-		fmt.Printf("No %s file found\n", envFile)
+	if err := godotenv.Load(".env"); err != nil {
+		fmt.Printf("No %s file found\n", ".env")
 	}
 
 	authConfigPath := os.Getenv("AUTH_CONFIG_PATH")
@@ -134,9 +129,6 @@ func Init() *Config {
 	}
 
 	cfg.Auth = authCfg
-
-	_ = cfg.Auth.Google.GetOAuthConfig()
-	_ = cfg.Auth.JWT.GetSecret()
-
+	fmt.Println(cfg.Auth.Google.ClientID)
 	return &cfg
 }

@@ -3,13 +3,15 @@ package jwt
 import (
 	"AuthService/config"
 	"errors"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
 type JWTData struct {
-	Email string
-	Name  string
+	Email    string
+	Name     string
+	Provider string
 }
 
 type JWT struct {
@@ -24,9 +26,10 @@ func NewJWT(cfg *config.Config) *JWT {
 
 func (j *JWT) CreateAccessToken(data JWTData) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"email": data.Email,
-		"name":  data.Name,
-		"exp":   j.Config.Auth.JWT.AccessExpiresIn,
+		"email":    data.Email,
+		"name":     data.Name,
+		"exp":      time.Now().Unix() + j.Config.Auth.JWT.AccessExpiresIn,
+		"provider": data.Provider,
 	})
 
 	tokenString, err := token.SignedString([]byte(j.Config.Auth.JWT.Secret))
@@ -36,9 +39,12 @@ func (j *JWT) CreateAccessToken(data JWTData) (string, error) {
 	return tokenString, nil
 }
 
-func (j *JWT) CreateRefreshToken() (string, error) {
+func (j *JWT) CreateRefreshToken(data JWTData) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"exp": j.Config.Auth.JWT.RefreshExpiresIn,
+		"email":    data.Email,
+		"name":     data.Name,
+		"exp":      time.Now().Unix() + j.Config.Auth.JWT.RefreshExpiresIn,
+		"provider": data.Provider,
 	})
 
 	tokenString, err := token.SignedString([]byte(j.Config.Auth.JWT.Secret))
@@ -48,7 +54,7 @@ func (j *JWT) CreateRefreshToken() (string, error) {
 	return tokenString, nil
 }
 
-func (j *JWT) Parse(tokenString string) (bool, *JWTData, error) {
+func (j *JWT) Parse(tokenString string) (JWTData, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
@@ -57,30 +63,36 @@ func (j *JWT) Parse(tokenString string) (bool, *JWTData, error) {
 	})
 
 	if err != nil {
-		return false, &JWTData{}, err
+		return JWTData{}, err
 	}
 
 	if !token.Valid {
-		return false, &JWTData{}, errors.New("invalid token")
+		return JWTData{}, errors.New("invalid token")
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return false, &JWTData{}, errors.New("invalid claims")
+		return JWTData{}, errors.New("invalid claims")
 	}
 
-	email, emailOk := claims["email"]
-	name, nameOk := claims["name"]
-	if !emailOk && !nameOk {
-		return true, &JWTData{}, nil
+	exp, err := claims.GetExpirationTime()
+	if err != nil || exp == nil {
+		return JWTData{}, errors.New("missing or invalid expiration")
+	}
+	if exp.Before(time.Now()) {
+		return JWTData{}, errors.New("token expired")
 	}
 
-	if !emailOk || !nameOk {
-		return false, &JWTData{}, errors.New("missing email or name in claims")
+	email, emailOk := claims["email"].(string)
+	name, nameOk := claims["name"].(string)
+	provider, providerOk := claims["provider"].(string)
+	if !emailOk || !nameOk || !providerOk {
+		return JWTData{}, errors.New("missing email, name, or provider in claims")
 	}
 
-	return true, &JWTData{
-		Email: email.(string),
-		Name:  name.(string),
+	return JWTData{
+		Email:    email,
+		Name:     name,
+		Provider: provider,
 	}, nil
 }

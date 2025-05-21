@@ -27,6 +27,12 @@ func main() {
 	log.Info().Msg("Application started")
 	log.Info().Msg("Environment: " + cfg.Environment)
 
+	//TokenStorage
+	tokenStorage := auth.NewTokenStorage()
+	if tokenStorage == nil {
+		log.Fatal().Msg("Failed to initialize TokenStorage")
+	}
+
 	// Setting up router
 	router := http.NewServeMux()
 
@@ -51,6 +57,7 @@ func main() {
 		Logger:          log,
 		JWT:             jwtService,
 		ProviderFactory: providerFactory,
+		TokenStorage:    tokenStorage,
 	})
 
 	server := &http.Server{

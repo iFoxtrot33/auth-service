@@ -2,6 +2,7 @@ package auth
 
 import (
 	"AuthService/config"
+	"AuthService/internal/github_auth"
 	"AuthService/internal/google_auth"
 	"AuthService/pkg/types"
 	"crypto/rand"
@@ -15,6 +16,7 @@ import (
 type Provider interface {
 	GetAuthURL(state string) string
 	Authenticate(code string) (types.UserInfo, *oauth2.Token, error)
+	ValidateRefreshToken(refreshToken string, email string) error
 }
 
 type ProviderFactory interface {
@@ -40,11 +42,47 @@ func (f *providerFactory) GetProvider(name string) (Provider, error) {
 	case "telegram":
 		return nil, errors.New("telegram provider not implemented")
 	case "github":
-		return nil, errors.New("github provider not implemented")
+		return github_auth.NewGitHubProvider(f.config, f.logger), nil
 	default:
 		f.logger.Error().Str("provider", name).Msg("Unknown provider")
 		return nil, errors.New("unknown provider")
 	}
+}
+
+func ValidateUserWithRefreshToken(factory ProviderFactory, logger Logger, providerName, identifier, refreshToken string) error {
+	if providerName == "" || identifier == "" || refreshToken == "" {
+		logger.Error().
+			Str("provider", providerName).
+			Str("identifier", identifier).
+			Msg("Provider, identifier, or refresh token is empty")
+		return errors.New("provider, identifier, or refresh token is empty")
+	}
+
+	provider, err := factory.GetProvider(providerName)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Str("provider", providerName).
+			Msg("Failed to get provider")
+		return err
+	}
+
+	err = provider.ValidateRefreshToken(refreshToken, identifier)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Str("provider", providerName).
+			Str("identifier", identifier).
+			Str("refresh_token", refreshToken[:10]+"...").
+			Msg("Failed to validate refresh token")
+		return err
+	}
+
+	logger.Info().
+		Str("provider", providerName).
+		Str("identifier", identifier).
+		Msg("Refresh token validated successfully")
+	return nil
 }
 
 func generateRandomState() (string, error) {

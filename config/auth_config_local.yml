@@ -4,6 +4,12 @@ google:
   redirect_url: "http://localhost:8082/api/v1/access?provider=google"
   scopes:
     - "https://www.googleapis.com/auth/userinfo.email"
+github:
+  client_id: "will-be-loaded-from-env"
+  client_secret: "will-be-loaded-from-env"
+  redirect_url: "http://localhost:8082/api/v1/access?provider=github"
+  scopes:
+    - "user:email"
 jwt:
   secret: "will-be-loaded-from-env"
   access_expires_in: 3600
