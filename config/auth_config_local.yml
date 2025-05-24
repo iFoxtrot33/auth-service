@@ -10,6 +10,11 @@ github:
   redirect_url: "http://localhost:8082/api/v1/access?provider=github"
   scopes:
     - "user:email"
+telegram:
+  token: "will-be-loaded-from-env"
+  redirect_url: "http://localhost:8082/api/v1/access?provider=telegram"
+  scopes:
+    - "profile"
 jwt:
   secret: "will-be-loaded-from-env"
   access_expires_in: 3600

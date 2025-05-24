@@ -81,7 +81,6 @@ func (g *GitHubProvider) Authenticate(code string) (types.UserInfo, *oauth2.Toke
 		return types.UserInfo{}, nil, err
 	}
 
-	// Пытаемся получить email через emails endpoint
 	if userInfo.Email == "" {
 		resp, err := client.Get("https://api.github.com/user/emails")
 		if err != nil {
@@ -116,7 +115,6 @@ func (g *GitHubProvider) Authenticate(code string) (types.UserInfo, *oauth2.Toke
 		}
 	}
 
-	// Используем Login как Email, если email пустой
 	if userInfo.Email == "" {
 		userInfo.Email = userInfo.Login
 		g.logger.Info().
@@ -136,22 +134,20 @@ func (g *GitHubProvider) Authenticate(code string) (types.UserInfo, *oauth2.Toke
 	}, token, nil
 }
 
-func (g *GitHubProvider) ValidateRefreshToken(refreshToken, expectedIdentifier string) error {
+func (g *GitHubProvider) ValidateRefreshToken(refreshToken, expectedIdentifier string) (string, error) {
 	if refreshToken == "" {
 		g.logger.Error().Msg("Empty refresh token provided for validation")
-		return errors.New("empty refresh token")
+		return "", errors.New("empty refresh token")
 	}
 	if expectedIdentifier == "" {
 		g.logger.Error().Msg("Empty expected identifier provided for validation")
-		return errors.New("empty expected identifier")
+		return "", errors.New("empty expected identifier")
 	}
 
-	// Создаём токен с refresh_token
 	token := &oauth2.Token{
 		RefreshToken: refreshToken,
 	}
 
-	// Используем TokenSource для попытки обновления access_token
 	tokenSource := g.oauthConfig.TokenSource(context.Background(), token)
 	newToken, err := tokenSource.Token()
 	if err != nil {
@@ -159,10 +155,9 @@ func (g *GitHubProvider) ValidateRefreshToken(refreshToken, expectedIdentifier s
 			Err(err).
 			Str("refresh_token", refreshToken[:10]+"...").
 			Msg("Failed to validate refresh token via TokenSource")
-		return errors.New("invalid or expired refresh token")
+		return "", errors.New("invalid or expired refresh token")
 	}
 
-	// Проверяем информацию о пользователе с новым access_token
 	client := oauth2.NewClient(context.Background(), tokenSource)
 	resp, err := client.Get("https://api.github.com/user")
 	if err != nil {
@@ -170,7 +165,7 @@ func (g *GitHubProvider) ValidateRefreshToken(refreshToken, expectedIdentifier s
 			Err(err).
 			Str("access_token", newToken.AccessToken[:10]+"...").
 			Msg("Failed to get user info with new access token")
-		return errors.New("failed to validate user info")
+		return "", errors.New("failed to validate user info")
 	}
 	defer resp.Body.Close()
 
@@ -180,10 +175,9 @@ func (g *GitHubProvider) ValidateRefreshToken(refreshToken, expectedIdentifier s
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
 		g.logger.Error().Err(err).Msg("Failed to decode GitHub user info")
-		return errors.New("failed to decode user info")
+		return "", errors.New("failed to decode user info")
 	}
 
-	// Пытаемся получить email через emails endpoint
 	if userInfo.Email == "" {
 		resp, err := client.Get("https://api.github.com/user/emails")
 		if err != nil {
@@ -218,7 +212,6 @@ func (g *GitHubProvider) ValidateRefreshToken(refreshToken, expectedIdentifier s
 		}
 	}
 
-	// Используем Email, если доступен, иначе Login
 	identifier := userInfo.Email
 	if identifier == "" {
 		identifier = userInfo.Login
@@ -226,7 +219,7 @@ func (g *GitHubProvider) ValidateRefreshToken(refreshToken, expectedIdentifier s
 
 	if identifier == "" {
 		g.logger.Error().Msg("No identifier (email or login) returned in user info")
-		return errors.New("invalid user info")
+		return "", errors.New("invalid user info")
 	}
 
 	if identifier != expectedIdentifier {
@@ -234,12 +227,12 @@ func (g *GitHubProvider) ValidateRefreshToken(refreshToken, expectedIdentifier s
 			Str("expected_identifier", expectedIdentifier).
 			Str("received_identifier", identifier).
 			Msg("Identifier mismatch in user info")
-		return errors.New("identifier mismatch")
+		return "", errors.New("identifier mismatch")
 	}
 
 	g.logger.Info().
 		Str("identifier", identifier).
 		Str("access_token", newToken.AccessToken[:10]+"...").
 		Msg("Refresh token validated successfully")
-	return nil
+	return newToken.RefreshToken, nil
 }
