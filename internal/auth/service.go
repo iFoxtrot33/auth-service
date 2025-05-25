@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/oauth2"
@@ -36,6 +37,11 @@ func NewProviderFactory(config *config.Config, logger *zerolog.Logger) ProviderF
 	}
 }
 func (f *providerFactory) GetProvider(name string) (Provider, error) {
+	if !isProviderEnabled(name, f.config.Auth.EnabledProviders) {
+		f.logger.Error().Str("provider", name).Msg("Provider is disabled in configuration")
+		return nil, errors.New("provider is disabled")
+	}
+
 	switch name {
 	case "google":
 		return google_auth.NewGoogleProvider(f.config, f.logger), nil
@@ -93,6 +99,18 @@ func ValidateUserWithRefreshToken(factory ProviderFactory, logger Logger, provid
 		Str("identifier", identifier).
 		Msg("Refresh token validated successfully")
 	return newRefreshToken, nil
+}
+
+func isProviderEnabled(provider string, enabledProviders []string) bool {
+	if len(enabledProviders) == 0 {
+		return true
+	}
+	for _, p := range enabledProviders {
+		if strings.EqualFold(p, provider) {
+			return true
+		}
+	}
+	return false
 }
 
 func generateRandomState() (string, error) {

@@ -162,7 +162,6 @@ func (t *TelegramProvider) authenticateWidget(code string) (types.UserInfo, *oau
 			Msg("Using Telegram ID as identifier due to empty username")
 	}
 
-	// Создаём фейковый токен с hash
 	token := &oauth2.Token{
 		AccessToken:  params.Get("hash"),
 		TokenType:    "Bearer",

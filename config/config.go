@@ -35,10 +35,11 @@ type CORSConfig struct {
 }
 
 type AuthConfig struct {
-	Google   GoogleOAuthConfig   `yaml:"google"`
-	GitHub   GitHubOAuthConfig   `yaml:"github"`
-	Telegram TelegramOAuthConfig `yaml:"telegram"`
-	JWT      JWTConfig           `yaml:"jwt"`
+	Google           GoogleOAuthConfig   `yaml:"google"`
+	GitHub           GitHubOAuthConfig   `yaml:"github"`
+	Telegram         TelegramOAuthConfig `yaml:"telegram"`
+	JWT              JWTConfig           `yaml:"jwt"`
+	EnabledProviders []string            `yaml:"enabled_providers"`
 }
 
 type GoogleOAuthConfig struct {

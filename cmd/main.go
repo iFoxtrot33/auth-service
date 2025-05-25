@@ -3,6 +3,7 @@ package main
 import (
 	"AuthService/config"
 	"AuthService/internal/auth"
+	"AuthService/internal/telemetry"
 	"AuthService/pkg/jwt"
 	"AuthService/pkg/logger"
 	"AuthService/pkg/middleware"
@@ -59,6 +60,9 @@ func main() {
 		ProviderFactory: providerFactory,
 		TokenStorage:    tokenStorage,
 	})
+
+	//Telemetry
+	telemetry.NewHealthHandler(router, *log)
 
 	server := &http.Server{
 		Addr:         cfg.Address,

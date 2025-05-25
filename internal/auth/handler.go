@@ -61,11 +61,11 @@ func NewAuthHandler(router *http.ServeMux, deps *AuthHandlerDeps) {
 
 // handleLogin initiates OAuth login by redirecting to the provider's auth URL
 // @Summary Initiate OAuth login
-// @Description Redirects the user to the OAuth provider's authentication URL
+// @Description Redirects the user to the OAuth provider's authentication URL. Supported providers: google, github, telegram_bot, telegram_widget
 // @Tags auth
 // @Accept json
 // @Produce json
-// @Param provider query string true "OAuth provider (e.g., google)"
+// @Param provider query string true "OAuth provider" Enums(google, github, telegram_bot, telegram_widget) example(google)
 // @Success 307 {string} string "Redirect to provider's auth URL"
 // @Failure 400 {object} ErrorResponse "Provider not specified or invalid provider"
 // @Failure 500 {object} ErrorResponse "Internal server error"
@@ -117,16 +117,16 @@ func (h *AuthHandler) handleLogin() http.HandlerFunc {
 
 // handleAccess completes OAuth authentication and issues a JWT access token
 // @Summary Complete OAuth authentication
-// @Description Exchanges the OAuth code for user info and returns a JWT access token
+// @Description Exchanges the OAuth code for user info and returns a JWT access token with refresh token. This endpoint is called by OAuth provider after successful authentication.
 // @Tags auth
 // @Accept json
 // @Produce json
-// @Param provider query string true "OAuth provider (e.g., google)"
-// @Param state query string true "OAuth state parameter"
-// @Param code query string true "OAuth authorization code"
-// @Success 200 {object} AccessResponse "JWT access token"
-// @Failure 400 {object} ErrorResponse "Provider not specified, invalid state, or code not specified"
-// @Failure 500 {object} ErrorResponse "Authentication failed or failed to create access token"
+// @Param provider query string true "OAuth provider" Enums(google, github, telegram_bot, telegram_widget) example(google)
+// @Param state query string true "OAuth state parameter for CSRF protection"
+// @Param code query string true "OAuth authorization code from provider"
+// @Success 200 {object} AccessResponse "JWT access and refresh tokens"
+// @Failure 400 {object} ErrorResponse "Provider not specified, invalid state, code not specified, or user identifier is empty"
+// @Failure 500 {object} ErrorResponse "Authentication failed, failed to create tokens, or failed to save tokens"
 // @Router /api/v1/access [get]
 func (h *AuthHandler) handleAccess() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +180,7 @@ func (h *AuthHandler) handleAccess() http.HandlerFunc {
 			Name:     userInfo.Name,
 			Provider: providerName,
 		})
+
 		if err != nil {
 			h.Logger.Error().Err(err).Msg("Failed to create access token")
 			res.Json(w, map[string]string{"error": "Failed to create access token"}, http.StatusInternalServerError)
@@ -203,7 +204,6 @@ func (h *AuthHandler) handleAccess() http.HandlerFunc {
 			return
 		}
 
-		// Сохраняем JWT refresh token (CustomToken) для всех провайдеров
 		err = h.TokenStorage.SaveToken(identifier, providerName, "jwt", refreshToken)
 		if err != nil {
 			h.Logger.Error().
@@ -216,7 +216,6 @@ func (h *AuthHandler) handleAccess() http.HandlerFunc {
 		}
 		h.Logger.Info().Str("identifier", identifier).Str("provider", providerName).Msg("Saved JWT refresh token")
 
-		// Сохраняем OAuth refresh token для Google и GitHub
 		if (providerName == "google" || providerName == "github") && oauthToken.RefreshToken != "" {
 			err = h.TokenStorage.SaveToken(identifier, providerName, "oauth", oauthToken.RefreshToken)
 			if err != nil {
@@ -243,13 +242,14 @@ func (h *AuthHandler) handleAccess() http.HandlerFunc {
 
 // handleRefresh refreshes JWT access token
 // @Summary Refresh JWT token
-// @Description Refreshes the access token using a refresh token
+// @Description Refreshes the access token using a refresh token. Validates both JWT refresh token and OAuth refresh token (for Google/GitHub providers).
 // @Tags auth
 // @Accept json
 // @Produce json
-// @Success 200 {object} AccessResponse "New JWT access token"
-// @Failure 400 {object} ErrorResponse "Invalid refresh token"
-// @Failure 500 {object} ErrorResponse "Failed to create new token"
+// @Param request body RefreshRequest true "Refresh token request"
+// @Success 200 {object} AccessResponse "New JWT access and refresh tokens"
+// @Failure 400 {object} ErrorResponse "Invalid request body, invalid or expired refresh token, or OAuth validation failed"
+// @Failure 500 {object} ErrorResponse "Failed to create new tokens or failed to save tokens"
 // @Router /api/v1/refresh [post]
 func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +260,6 @@ func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 			return
 		}
 
-		// Проверяем JWT refresh-токен
 		data, err := h.JWT.Parse(refreshReq.RefreshToken)
 		if err != nil {
 			h.Logger.Error().
@@ -272,7 +271,6 @@ func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 			return
 		}
 
-		// Используем identifier вместо email
 		identifier := data.Email
 		if identifier == "" {
 			h.Logger.Error().
@@ -288,7 +286,6 @@ func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 			Int64("current_time", time.Now().Unix()).
 			Msg("Parsed JWT refresh token")
 
-		// Проверяем JWT refresh-токен в TokenStorage для всех провайдеров
 		if h.TokenStorage == nil {
 			h.Logger.Error().Str("identifier", identifier).Msg("TokenStorage is nil")
 			res.Json(w, map[string]string{"error": "Internal server error"}, http.StatusInternalServerError)
@@ -312,7 +309,6 @@ func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 			Str("provider", data.Provider).
 			Msg("Successfully validated JWT refresh token")
 
-		// Для Google и GitHub дополнительно проверяем OAuth refresh token
 		if data.Provider != "telegram_bot" && data.Provider != "telegram_widget" {
 			oauthRefreshToken, err := h.TokenStorage.GetToken(identifier, data.Provider, "oauth")
 			if err != nil {
@@ -340,7 +336,6 @@ func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 				Str("provider", data.Provider).
 				Msg("Successfully validated OAuth refresh token")
 
-			// Сохраняем новый OAuth refresh_token, если он вернулся
 			if newOauthRefreshToken != "" {
 				err = h.TokenStorage.SaveToken(identifier, data.Provider, "oauth", newOauthRefreshToken)
 				if err != nil {
@@ -360,7 +355,6 @@ func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 			}
 		}
 
-		// Создаем новый JWT access-токен
 		accessToken, err := h.JWT.CreateAccessToken(jwt.JWTData{
 			Email:    identifier,
 			Name:     data.Name,
@@ -372,7 +366,6 @@ func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 			return
 		}
 
-		// Создаем новый JWT refresh-токен
 		refreshToken, err := h.JWT.CreateRefreshToken(jwt.JWTData{
 			Email:    identifier,
 			Name:     data.Name,
@@ -384,7 +377,6 @@ func (h *AuthHandler) handleRefresh() http.HandlerFunc {
 			return
 		}
 
-		// Сохраняем новый JWT refresh_token для всех провайдеров
 		err = h.TokenStorage.SaveToken(identifier, data.Provider, "jwt", refreshToken)
 		if err != nil {
 			h.Logger.Error().

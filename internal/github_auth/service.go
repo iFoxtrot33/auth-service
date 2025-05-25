@@ -33,7 +33,7 @@ func (g *GitHubProvider) GetAuthURL(state string) string {
 		return ""
 	}
 	g.logger.Info().Msg("Generating GitHub OAuth URL")
-	// Изменение: Используем scope=user для получения email и refresh_token
+
 	url := g.oauthConfig.AuthCodeURL(state,
 		oauth2.AccessTypeOffline,
 		oauth2.SetAuthURLParam("scope", "user refresh_token"),
@@ -129,7 +129,7 @@ func (g *GitHubProvider) Authenticate(code string) (types.UserInfo, *oauth2.Toke
 
 	return types.UserInfo{
 		ID:    fmt.Sprintf("%d", userInfo.ID),
-		Email: userInfo.Email, // Email или Login
+		Email: userInfo.Email,
 		Name:  userInfo.Name,
 	}, token, nil
 }

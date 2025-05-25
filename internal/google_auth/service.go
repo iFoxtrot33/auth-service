@@ -90,12 +90,10 @@ func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string
 		return "", errors.New("empty expected email")
 	}
 
-	// Создаём токен с refresh_token
 	token := &oauth2.Token{
 		RefreshToken: refreshToken,
 	}
 
-	// Используем TokenSource для попытки обновления access_token
 	tokenSource := g.oauthConfig.TokenSource(context.Background(), token)
 	newToken, err := tokenSource.Token()
 	if err != nil {
@@ -106,7 +104,6 @@ func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string
 		return "", errors.New("invalid or expired refresh token")
 	}
 
-	// Проверяем информацию о пользователе с новым access_token
 	client := oauth2.NewClient(context.Background(), tokenSource)
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 	if err != nil {
