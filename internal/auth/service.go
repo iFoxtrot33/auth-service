@@ -18,7 +18,7 @@ import (
 type Provider interface {
 	GetAuthURL(state string) string
 	Authenticate(code string) (types.UserInfo, *oauth2.Token, error)
-	ValidateRefreshToken(refreshToken string, email string) (string, error)
+	ValidateRefreshToken(refreshToken string, email string) (string, string, error)
 }
 
 type ProviderFactory interface {
@@ -83,7 +83,7 @@ func ValidateUserWithRefreshToken(factory ProviderFactory, logger Logger, provid
 		return "", err
 	}
 
-	newRefreshToken, err := provider.ValidateRefreshToken(refreshToken, identifier)
+	newRefreshToken, _, err := provider.ValidateRefreshToken(refreshToken, identifier)
 	if err != nil {
 		logger.Error().
 			Err(err).

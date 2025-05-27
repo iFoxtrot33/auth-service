@@ -4,7 +4,6 @@ import (
 	"AuthService/config"
 	"AuthService/internal/auth"
 	"AuthService/internal/telemetry"
-	"AuthService/pkg/jwt"
 	"AuthService/pkg/logger"
 	"AuthService/pkg/middleware"
 	"AuthService/pkg/swagger"
@@ -46,9 +45,6 @@ func main() {
 		middleware.CORS(cfg.CORS.AllowedOrigins),
 	)
 
-	// JWT Service
-	jwtService := jwt.NewJWT(cfg)
-
 	// Provider Factory
 	providerFactory := auth.NewProviderFactory(cfg, log)
 
@@ -56,13 +52,16 @@ func main() {
 	auth.NewAuthHandler(router, &auth.AuthHandlerDeps{
 		Config:          cfg,
 		Logger:          log,
-		JWT:             jwtService,
 		ProviderFactory: providerFactory,
 		TokenStorage:    tokenStorage,
 	})
 
 	//Telemetry
-	telemetry.NewHealthHandler(router, *log)
+	metricsService := telemetry.NewMetricsService()
+	err := telemetry.NewHealthHandler(router, *log, metricsService)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize telemetry")
+	}
 
 	server := &http.Server{
 		Addr:         cfg.Address,
@@ -74,7 +73,7 @@ func main() {
 
 	log.Info().Msgf("Server starting on %s", cfg.Address)
 
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 
 	if err != nil {
 		log.Fatal().

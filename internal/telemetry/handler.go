@@ -1,35 +1,37 @@
 package telemetry
 
 import (
-	"math"
 	"net/http"
 
 	"AuthService/pkg/res"
 
 	"github.com/rs/zerolog"
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
+	otelhttp "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	otelruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 type HealthHandler struct {
-	Logger zerolog.Logger
+	Logger  zerolog.Logger
+	Service *MetricsService
 }
 
-func NewHealthHandler(router *http.ServeMux, logger zerolog.Logger) {
-	handler := &HealthHandler{Logger: logger}
-	router.HandleFunc("GET /api/v1/health", handler.handleHealth())
+func NewHealthHandler(router *http.ServeMux, logger zerolog.Logger, service *MetricsService) error {
+
+	if err := otelruntime.Start(otelruntime.WithMeterProvider(otel.GetMeterProvider())); err != nil {
+		logger.Error().Err(err).Msg("Failed to start runtime instrumentation")
+		return err
+	}
+
+	handler := &HealthHandler{Logger: logger, Service: service}
+	router.Handle("/api/v1/health", otelhttp.NewHandler(
+		http.HandlerFunc(handler.handleHealth()),
+		"health_check",
+	))
+
+	return nil
 }
 
-// handleHealth возвращает текущий расход CPU и памяти
-// @Summary Health check
-// @Description Returns current CPU and memory usage percentages
-// @Tags telemetry
-// @Produce json
-// @Success 200 {object} HealthResponse "CPU and memory usage"
-// @Failure 500 {object} map[string]string "Failed to get CPU or memory usage"
-// @Router /api/v1/health [get]
 func (h *HealthHandler) handleHealth() http.HandlerFunc {
 	tracer := otel.Tracer("auth-service")
 
@@ -37,40 +39,22 @@ func (h *HealthHandler) handleHealth() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context(), "handleHealth")
 		defer span.End()
 
-		cpuPercent, err := cpu.PercentWithContext(ctx, 0, false)
+		cpuPercent, memoryPercent, err := h.Service.GetMetrics(ctx)
 		if err != nil {
-			h.Logger.Error().Err(err).Msg("Failed to get CPU usage")
+			h.Logger.Error().Err(err).Msg("Failed to get metrics")
 			span.RecordError(err)
-			span.SetAttributes(attribute.String("error", "failed to get CPU usage"))
-			res.Json(w, map[string]string{"error": "Failed to get CPU usage"}, http.StatusInternalServerError)
+			res.Json(w, map[string]string{"error": "Failed to get metrics"}, http.StatusInternalServerError)
 			return
 		}
-		var cpuUsage float64
-		if len(cpuPercent) > 0 {
-			cpuUsage = math.Round(cpuPercent[0]*100) / 100
-			span.SetAttributes(attribute.Float64("cpu_usage_percent", cpuUsage))
-		}
-
-		vm, err := mem.VirtualMemoryWithContext(ctx)
-		if err != nil {
-			h.Logger.Error().Err(err).Msg("Failed to get memory usage")
-			span.RecordError(err)
-			span.SetAttributes(attribute.String("error", "failed to get memory usage"))
-			res.Json(w, map[string]string{"error": "Failed to get memory usage"}, http.StatusInternalServerError)
-			return
-		}
-
-		memoryUsedPercent := math.Round(vm.UsedPercent*100) / 100
-		span.SetAttributes(attribute.Float64("memory_used_percent", memoryUsedPercent))
 
 		response := HealthResponse{
-			CPUUsagePercent:   cpuUsage,
-			MemoryUsedPercent: memoryUsedPercent,
+			CPUUsagePercent:   cpuPercent,
+			MemoryUsedPercent: memoryPercent,
 		}
 
 		h.Logger.Info().
-			Float64("cpu_usage_percent", cpuUsage).
-			Float64("memory_used_percent", memoryUsedPercent).
+			Float64("cpu_usage_percent", cpuPercent).
+			Float64("memory_used_percent", memoryPercent).
 			Msg("Health check requested")
 
 		res.Json(w, response, http.StatusOK)

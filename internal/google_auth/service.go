@@ -80,14 +80,14 @@ func (g *GoogleProvider) Authenticate(code string) (types.UserInfo, *oauth2.Toke
 	}, token, nil
 }
 
-func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string) (string, error) {
+func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string) (string, string, error) {
 	if refreshToken == "" {
 		g.logger.Error().Msg("Empty refresh token provided for validation")
-		return "", errors.New("empty refresh token")
+		return "", "", errors.New("empty refresh token")
 	}
 	if expectedEmail == "" {
 		g.logger.Error().Msg("Empty expected email provided for validation")
-		return "", errors.New("empty expected email")
+		return "", "", errors.New("empty expected email")
 	}
 
 	token := &oauth2.Token{
@@ -101,7 +101,7 @@ func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string
 			Err(err).
 			Str("refresh_token", refreshToken[:10]+"...").
 			Msg("Failed to validate refresh token via TokenSource")
-		return "", errors.New("invalid or expired refresh token")
+		return "", "", errors.New("invalid or expired refresh token")
 	}
 
 	client := oauth2.NewClient(context.Background(), tokenSource)
@@ -111,7 +111,7 @@ func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string
 			Err(err).
 			Str("access_token", newToken.AccessToken[:10]+"...").
 			Msg("Failed to get user info with new access token")
-		return "", errors.New("failed to validate user info")
+		return "", "", errors.New("failed to validate user info")
 	}
 	defer resp.Body.Close()
 
@@ -120,12 +120,12 @@ func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
 		g.logger.Error().Err(err).Msg("Failed to decode Google user info")
-		return "", errors.New("failed to decode user info")
+		return "", "", errors.New("failed to decode user info")
 	}
 
 	if userInfo.Email == "" {
 		g.logger.Error().Msg("No email returned in user info")
-		return "", errors.New("invalid user info")
+		return "", "", errors.New("invalid user info")
 	}
 
 	if userInfo.Email != expectedEmail {
@@ -133,7 +133,7 @@ func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string
 			Str("expected_email", expectedEmail).
 			Str("received_email", userInfo.Email).
 			Msg("Email mismatch in user info")
-		return "", errors.New("email mismatch")
+		return "", "", errors.New("email mismatch")
 	}
 
 	g.logger.Info().
@@ -147,5 +147,5 @@ func (g *GoogleProvider) ValidateRefreshToken(refreshToken, expectedEmail string
 			Str("new_refresh_token", newRefreshToken[:10]+"...").
 			Msg("Received new refresh token from Google")
 	}
-	return newRefreshToken, nil
+	return newRefreshToken, newToken.AccessToken, nil
 }

@@ -175,9 +175,9 @@ func (t *TelegramProvider) authenticateWidget(code string) (types.UserInfo, *oau
 	return userInfo, token, nil
 }
 
-func (t *TelegramProvider) ValidateRefreshToken(refreshToken, expectedIdentifier string) (string, error) {
+func (t *TelegramProvider) ValidateRefreshToken(refreshToken, expectedIdentifier string) (string, string, error) {
 	t.logger.Error().Msg("Telegram does not support refresh token")
-	return "", errors.New("refresh token not supported")
+	return "", "", errors.New("refresh token not supported")
 }
 
 func (t *TelegramProvider) verifyTelegramData(params url.Values) bool {
