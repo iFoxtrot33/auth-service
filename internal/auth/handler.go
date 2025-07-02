@@ -1,7 +1,8 @@
 package auth
 
 import (
-	"AuthService/pkg/req"
+	"AuthService/pkg/jwt"
+	"AuthService/pkg/kafka"
 	"AuthService/pkg/res"
 	"net/http"
 
@@ -22,14 +23,16 @@ type AuthHandler struct {
 	Logger          Logger
 	Config          Config
 	ProviderFactory ProviderFactory
-	TokenStorage    *TokenStorage
+	KafkaProducer   kafka.Producer
+	JWTService      *jwt.JWT
 }
 
 type AuthHandlerDeps struct {
 	Config          Config
 	Logger          Logger
 	ProviderFactory ProviderFactory
-	TokenStorage    *TokenStorage
+	KafkaProducer   kafka.Producer
+	JWTService      *jwt.JWT
 }
 
 // NewAuthHandler creates a new auth handler and registers routes
@@ -40,12 +43,13 @@ func NewAuthHandler(router *http.ServeMux, deps *AuthHandlerDeps) {
 		Logger:          deps.Logger,
 		Config:          deps.Config,
 		ProviderFactory: deps.ProviderFactory,
-		TokenStorage:    deps.TokenStorage,
+		KafkaProducer:   deps.KafkaProducer,
+		JWTService:      deps.JWTService,
 	}
 
 	router.HandleFunc("GET /api/v1/login", handler.handleLogin())
-	router.HandleFunc("GET /api/v1/access", handler.handleAccess())
-	router.HandleFunc("POST /api/v1/refresh", handler.handleRefresh())
+	router.HandleFunc("GET /api/v1/callback", handler.handleCallback())
+	router.HandleFunc("POST /api/v1/logout", handler.handleLogout())
 }
 
 // handleLogin initiates OAuth login by redirecting to the provider's auth URL
@@ -113,12 +117,14 @@ func (h *AuthHandler) handleLogin() http.HandlerFunc {
 // @Param provider query string true "OAuth provider" Enums(google, github, telegram_bot, telegram_widget) example(google)
 // @Param state query string true "OAuth state parameter for CSRF protection"
 // @Param code query string true "OAuth authorization code from provider"
-// @Success 200 {object} AccessResponse "Provider access and refresh tokens with provider name"
+// @Success 200 {object} CallbackResponse "Provider access and refresh tokens with provider name"
 // @Failure 400 {object} ErrorResponse "Provider not specified, invalid state, code not specified, or user identifier is empty"
 // @Failure 500 {object} ErrorResponse "Authentication failed or failed to save tokens"
-// @Router /api/v1/access [get]
-func (h *AuthHandler) handleAccess() http.HandlerFunc {
+// @Router /api/v1/callback [get]
+func (h *AuthHandler) handleCallback() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
 		providerName := r.URL.Query().Get("provider")
 		if providerName == "" {
 			h.Logger.Error().Msg("Provider not specified")
@@ -164,126 +170,60 @@ func (h *AuthHandler) handleAccess() http.HandlerFunc {
 			return
 		}
 
-		if (providerName == "google" || providerName == "github") && oauthToken.RefreshToken != "" {
-			err = h.TokenStorage.SaveToken(identifier, providerName, oauthToken.RefreshToken)
-			if err != nil {
-				h.Logger.Error().
-					Err(err).
-					Str("identifier", identifier).
-					Str("provider", providerName).
-					Str("refresh_token", oauthToken.RefreshToken[:10]+"...").
-					Msg("Failed to save OAuth refresh token")
-				res.Json(w, map[string]string{"error": "Failed to save token"}, http.StatusInternalServerError)
-				return
-			}
-			h.Logger.Info().Str("identifier", identifier).Str("provider", providerName).Msg("Saved OAuth refresh token")
+		sessionID, err := h.JWTService.CreateSessionID(jwt.JWTData{
+			Email:    userInfo.Email,
+			Name:     userInfo.Name,
+			Provider: providerName,
+		})
+		if err != nil {
+			h.Logger.Error().Err(err).Msg("Failed to create session ID")
+			res.Json(w, ErrorResponse{Error: "Failed to generate session"}, http.StatusInternalServerError)
+			return
 		}
 
-		response := AccessResponse{
-			AccessToken:  oauthToken.AccessToken,
-			RefreshToken: oauthToken.RefreshToken, // Empty for Telegram
-			Provider:     providerName,
+		// Prepare provider tokens for Kafka
+		var providerTokens *kafka.ProviderTokens
+		if oauthToken != nil {
+			providerTokens = &kafka.ProviderTokens{
+				AccessToken:  oauthToken.AccessToken,
+				RefreshToken: oauthToken.RefreshToken,
+			}
+			if !oauthToken.Expiry.IsZero() {
+				providerTokens.ExpiresAt = &oauthToken.Expiry
+			}
+		}
+
+		// Send authentication event to Kafka (Core Service)
+		err = h.KafkaProducer.SendUserAuthenticated(ctx, userInfo.Email, providerName, sessionID, providerTokens)
+		if err != nil {
+			h.Logger.Error().Err(err).Msg("Failed to send authentication message to Kafka")
+			// Don't fail the request - log error and continue
+		}
+
+		// Clear OAuth state cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     "oauth_state",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+		})
+
+		// Return SessionID to user
+		response := CallbackResponse{
+			SessionID: sessionID,
 		}
 		res.Json(w, response, http.StatusOK)
 
-		h.Logger.Info().Str("identifier", identifier).Str("provider", providerName).Msg("Successfully issued provider tokens")
+		h.Logger.Info().
+			Str("email", userInfo.Email).
+			Str("provider", providerName).
+			Msg("Successfully created session")
+
 	}
 }
 
-// handleRefresh refreshes provider access token
-// @Summary Refresh provider access token
-// @Description Refreshes the access token using a refresh token for Google/GitHub providers
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param request body RefreshRequest true "Refresh token request with provider"
-// @Success 200 {object} AccessResponse "New provider access and refresh tokens with provider name"
-// @Failure 400 {object} ErrorResponse "Invalid request body, invalid or expired refresh token, or refresh not supported"
-// @Failure 500 {object} ErrorResponse "Failed to refresh tokens or save tokens"
-// @Router /api/v1/refresh [post]
-func (h *AuthHandler) handleRefresh() http.HandlerFunc {
+func (h *AuthHandler) handleLogout() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		refreshReq, err := req.HandleBody[RefreshRequest](&w, r)
-		if err != nil {
-			h.Logger.Error().Err(err).Msg("Failed to parse or validate refresh request")
-			res.Json(w, map[string]string{"error": "Invalid request body"}, http.StatusBadRequest)
-			return
-		}
-
-		providerName := refreshReq.Provider
-
-		provider, err := h.ProviderFactory.GetProvider(providerName)
-		if err != nil {
-			h.Logger.Error().Err(err).Str("provider", providerName).Msg("Failed to get provider")
-			res.Json(w, map[string]string{"error": "Invalid provider"}, http.StatusBadRequest)
-			return
-		}
-
-		if providerName == "telegram_bot" || providerName == "telegram_widget" {
-			h.Logger.Error().Str("provider", providerName).Msg("Refresh not supported for Telegram")
-			res.Json(w, map[string]string{"error": "Refresh not supported for Telegram"}, http.StatusBadRequest)
-			return
-		}
-
-		if h.TokenStorage == nil {
-			h.Logger.Error().Msg("TokenStorage is nil")
-			res.Json(w, map[string]string{"error": "Internal server error"}, http.StatusInternalServerError)
-			return
-		}
-
-		identifier, storedProvider, err := h.TokenStorage.FindByToken(refreshReq.RefreshToken)
-		if err != nil || storedProvider != providerName || identifier == "" {
-			h.Logger.Error().
-				Err(err).
-				Str("provider", providerName).
-				Str("stored_provider", storedProvider).
-				Str("provided_token", refreshReq.RefreshToken[:10]+"...").
-				Msg("Refresh token not found, mismatched provider, or invalid identifier")
-			res.Json(w, map[string]string{"error": "Invalid refresh token"}, http.StatusBadRequest)
-			return
-		}
-		h.Logger.Info().
-			Str("identifier", identifier).
-			Str("provider", providerName).
-			Msg("Successfully found user by refresh token")
-
-		newRefreshToken, newAccessToken, err := provider.ValidateRefreshToken(refreshReq.RefreshToken, identifier)
-		if err != nil {
-			h.Logger.Error().
-				Err(err).
-				Str("identifier", identifier).
-				Str("provider", providerName).
-				Msg("Failed to validate refresh token")
-			res.Json(w, map[string]string{"error": "Invalid or expired refresh token"}, http.StatusBadRequest)
-			return
-		}
-
-		// MODIFIED: Save new refresh token if provided
-		if newRefreshToken != "" {
-			err = h.TokenStorage.SaveToken(identifier, providerName, newRefreshToken)
-			if err != nil {
-				h.Logger.Error().
-					Err(err).
-					Str("identifier", identifier).
-					Str("provider", providerName).
-					Msg("Failed to save new refresh token")
-				res.Json(w, map[string]string{"error": "Failed to save new refresh token"}, http.StatusInternalServerError)
-				return
-			}
-			h.Logger.Info().
-				Str("identifier", identifier).
-				Str("provider", providerName).
-				Str("new_refresh_token", newRefreshToken[:10]+"...").
-				Msg("Saved new refresh token")
-		}
-
-		response := AccessResponse{
-			AccessToken:  newAccessToken,
-			RefreshToken: newRefreshToken, // Empty if not updated
-			Provider:     providerName,
-		}
-		res.Json(w, response, http.StatusOK)
-
-		h.Logger.Info().Str("identifier", identifier).Str("provider", providerName).Msg("Successfully refreshed provider tokens")
 	}
 }

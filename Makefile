@@ -1,4 +1,6 @@
 start:
+	chmod +x scripts/create-kafka-topic.sh
+	./scripts/create-kafka-topic.sh
 	go run cmd/main.go
 
 start-production:

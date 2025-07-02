@@ -18,7 +18,6 @@ import (
 type Provider interface {
 	GetAuthURL(state string) string
 	Authenticate(code string) (types.UserInfo, *oauth2.Token, error)
-	ValidateRefreshToken(refreshToken string, email string) (string, string, error)
 }
 
 type ProviderFactory interface {
@@ -55,50 +54,6 @@ func (f *providerFactory) GetProvider(name string) (Provider, error) {
 		f.logger.Error().Str("provider", name).Msg("Unknown provider")
 		return nil, errors.New("unknown provider")
 	}
-}
-
-func ValidateUserWithRefreshToken(factory ProviderFactory, logger Logger, providerName, identifier, refreshToken string) (string, error) {
-	if providerName == "" || identifier == "" || refreshToken == "" {
-		logger.Error().
-			Str("provider", providerName).
-			Str("identifier", identifier).
-			Msg("Provider, identifier, or refresh token is empty")
-		return "", errors.New("provider, identifier, or refresh token is empty")
-	}
-
-	if providerName == "telegram_bot" || providerName == "telegram_widget" {
-		logger.Info().
-			Str("provider", providerName).
-			Str("identifier", identifier).
-			Msg("Refresh token validation skipped for Telegram")
-		return "", nil
-	}
-
-	provider, err := factory.GetProvider(providerName)
-	if err != nil {
-		logger.Error().
-			Err(err).
-			Str("provider", providerName).
-			Msg("Failed to get provider")
-		return "", err
-	}
-
-	newRefreshToken, _, err := provider.ValidateRefreshToken(refreshToken, identifier)
-	if err != nil {
-		logger.Error().
-			Err(err).
-			Str("provider", providerName).
-			Str("identifier", identifier).
-			Str("refresh_token", refreshToken[:10]+"...").
-			Msg("Failed to validate refresh token")
-		return "", err
-	}
-
-	logger.Info().
-		Str("provider", providerName).
-		Str("identifier", identifier).
-		Msg("Refresh token validated successfully")
-	return newRefreshToken, nil
 }
 
 func isProviderEnabled(provider string, enabledProviders []string) bool {

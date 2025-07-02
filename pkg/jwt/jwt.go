@@ -24,26 +24,11 @@ func NewJWT(cfg *config.Config) *JWT {
 	}
 }
 
-func (j *JWT) CreateAccessToken(data JWTData) (string, error) {
+func (j *JWT) CreateSessionID(data JWTData) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"email":    data.Email,
 		"name":     data.Name,
-		"exp":      time.Now().Unix() + j.Config.Auth.JWT.AccessExpiresIn,
-		"provider": data.Provider,
-	})
-
-	tokenString, err := token.SignedString([]byte(j.Config.Auth.JWT.Secret))
-	if err != nil {
-		return "", err
-	}
-	return tokenString, nil
-}
-
-func (j *JWT) CreateRefreshToken(data JWTData) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"email":    data.Email,
-		"name":     data.Name,
-		"exp":      time.Now().Unix() + j.Config.Auth.JWT.RefreshExpiresIn,
+		"exp":      time.Now().Unix() + j.Config.Auth.JWT.SessionIDExpiresIn,
 		"provider": data.Provider,
 	})
 

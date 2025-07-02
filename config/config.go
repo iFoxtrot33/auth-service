@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ilyakaznacheev/cleanenv"
@@ -17,6 +18,7 @@ type Config struct {
 	Logger      LogConfig  `yaml:"logger"`
 	CORS        CORSConfig `yaml:"cors"`
 	Auth        AuthConfig
+	Kafka       KafkaConfig `yaml:"kafka"`
 }
 
 type HTTPServer struct {
@@ -63,9 +65,21 @@ type TelegramOAuthConfig struct {
 }
 
 type JWTConfig struct {
-	Secret           string `yaml:"secret" env:"JWT_SECRET" env-required:"true"`
-	AccessExpiresIn  int64  `yaml:"access_expires_in"`
-	RefreshExpiresIn int64  `yaml:"refresh_expires_in"`
+	Secret             string `yaml:"secret" env:"JWT_SECRET" env-required:"true"`
+	SessionIDExpiresIn int64  `yaml:"session_id_expires_in" env-default:"3600"`
+}
+
+type KafkaConfig struct {
+	Brokers   []string `yaml:"brokers" env:"KAFKA_BROKERS" env-separator:","`
+	AuthTopic string   `yaml:"auth_topic" env:"KAFKA_AUTH_TOPIC"`
+	Timeout   struct {
+		Write time.Duration `yaml:"write" env-default:"10s"`
+		Read  time.Duration `yaml:"read" env-default:"10s"`
+	} `yaml:"timeout"`
+	Retry struct {
+		MaxAttempts int           `yaml:"max_attempts" env-default:"3"`
+		Backoff     time.Duration `yaml:"backoff" env-default:"1s"`
+	} `yaml:"retry"`
 }
 
 func (g *GoogleOAuthConfig) GetOAuthConfig() *oauth2.Config {
@@ -146,5 +160,18 @@ func Init() *Config {
 
 	cfg.Auth = authCfg
 	fmt.Println(cfg.Auth.Google.ClientID)
+
+	if brokersEnv := os.Getenv("KAFKA_BROKERS"); brokersEnv != "" {
+		cfg.Kafka.Brokers = strings.Split(brokersEnv, ",")
+		// Trim spaces
+		for i, broker := range cfg.Kafka.Brokers {
+			cfg.Kafka.Brokers[i] = strings.TrimSpace(broker)
+		}
+	}
+
+	if topicEnv := os.Getenv("KAFKA_AUTH_TOPIC"); topicEnv != "" {
+		cfg.Kafka.AuthTopic = topicEnv
+	}
+
 	return &cfg
 }

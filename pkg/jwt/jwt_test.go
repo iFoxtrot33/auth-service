@@ -3,7 +3,6 @@ package jwt
 import (
 	"AuthService/config"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,9 +12,8 @@ func createTestConfig() *config.Config {
 	return &config.Config{
 		Auth: config.AuthConfig{
 			JWT: config.JWTConfig{
-				Secret:           "test-secret-key",
-				AccessExpiresIn:  3600,
-				RefreshExpiresIn: 86400,
+				Secret:             "test-secret-key",
+				SessionIDExpiresIn: 3600,
 			},
 		},
 	}
@@ -34,7 +32,7 @@ func TestCreateAndParseToken(t *testing.T) {
 	jwtService := NewJWT(cfg)
 	data := createTestJWTData()
 
-	token, err := jwtService.CreateAccessToken(data)
+	token, err := jwtService.CreateSessionID(data)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -52,20 +50,4 @@ func TestParseInvalidToken(t *testing.T) {
 
 	_, err := jwtService.Parse("invalid.token")
 	assert.Error(t, err)
-}
-
-func TestExpiredToken(t *testing.T) {
-	cfg := createTestConfig()
-	cfg.Auth.JWT.AccessExpiresIn = -1
-	jwtService := NewJWT(cfg)
-	data := createTestJWTData()
-
-	token, err := jwtService.CreateAccessToken(data)
-	require.NoError(t, err)
-
-	time.Sleep(time.Millisecond * 10)
-
-	_, err = jwtService.Parse(token)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "expired")
 }

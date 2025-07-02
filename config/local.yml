@@ -9,3 +9,13 @@ logger:
 cors:
   allowed_origins:
     - "*"
+kafka:
+  brokers:
+    - "127.0.0.1:9092"
+  auth_topic: "auth-events"
+  timeout:
+    write: 10s
+    read: 10s
+  retry:
+    max_attempts: 3
+    backoff: 1s

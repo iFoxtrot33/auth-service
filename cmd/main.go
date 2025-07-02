@@ -4,6 +4,8 @@ import (
 	"AuthService/config"
 	"AuthService/internal/auth"
 	"AuthService/internal/telemetry"
+	"AuthService/pkg/jwt"
+	"AuthService/pkg/kafka"
 	"AuthService/pkg/logger"
 	"AuthService/pkg/middleware"
 	"AuthService/pkg/swagger"
@@ -27,11 +29,22 @@ func main() {
 	log.Info().Msg("Application started")
 	log.Info().Msg("Environment: " + cfg.Environment)
 
-	//TokenStorage
-	tokenStorage := auth.NewTokenStorage()
-	if tokenStorage == nil {
-		log.Fatal().Msg("Failed to initialize TokenStorage")
-	}
+	//Setup Kafka Producer
+	kafkaProducer := kafka.NewProducer(kafka.ProducerConfig{
+		Brokers:      cfg.Kafka.Brokers,
+		Topic:        cfg.Kafka.AuthTopic,
+		WriteTimeout: cfg.Kafka.Timeout.Write,
+		ReadTimeout:  cfg.Kafka.Timeout.Read,
+		Logger:       *log,
+	})
+	defer func() {
+		if err := kafkaProducer.Close(); err != nil {
+			log.Error().Err(err).Msg("Failed to close Kafka producer")
+		}
+	}()
+
+	//JWT Service
+	jwtService := jwt.NewJWT(cfg)
 
 	// Setting up router
 	router := http.NewServeMux()
@@ -53,7 +66,8 @@ func main() {
 		Config:          cfg,
 		Logger:          log,
 		ProviderFactory: providerFactory,
-		TokenStorage:    tokenStorage,
+		KafkaProducer:   kafkaProducer,
+		JWTService:      jwtService,
 	})
 
 	//Telemetry
