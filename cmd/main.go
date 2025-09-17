@@ -3,7 +3,9 @@ package main
 import (
 	"AuthService/config"
 	"AuthService/internal/auth"
+	"AuthService/internal/telemetry"
 	"AuthService/pkg/jwt"
+	"AuthService/pkg/kafka"
 	"AuthService/pkg/logger"
 	"AuthService/pkg/middleware"
 	"AuthService/pkg/swagger"
@@ -27,6 +29,23 @@ func main() {
 	log.Info().Msg("Application started")
 	log.Info().Msg("Environment: " + cfg.Environment)
 
+	//Setup Kafka Producer
+	kafkaProducer := kafka.NewProducer(kafka.ProducerConfig{
+		Brokers:      cfg.Kafka.Brokers,
+		Topic:        cfg.Kafka.AuthTopic,
+		WriteTimeout: cfg.Kafka.Timeout.Write,
+		ReadTimeout:  cfg.Kafka.Timeout.Read,
+		Logger:       *log,
+	})
+	defer func() {
+		if err := kafkaProducer.Close(); err != nil {
+			log.Error().Err(err).Msg("Failed to close Kafka producer")
+		}
+	}()
+
+	//JWT Service
+	jwtService := jwt.NewJWT(cfg)
+
 	// Setting up router
 	router := http.NewServeMux()
 
@@ -39,9 +58,6 @@ func main() {
 		middleware.CORS(cfg.CORS.AllowedOrigins),
 	)
 
-	// JWT Service
-	jwtService := jwt.NewJWT(cfg)
-
 	// Provider Factory
 	providerFactory := auth.NewProviderFactory(cfg, log)
 
@@ -49,9 +65,17 @@ func main() {
 	auth.NewAuthHandler(router, &auth.AuthHandlerDeps{
 		Config:          cfg,
 		Logger:          log,
-		JWT:             jwtService,
 		ProviderFactory: providerFactory,
+		KafkaProducer:   kafkaProducer,
+		JWTService:      jwtService,
 	})
+
+	//Telemetry
+	metricsService := telemetry.NewMetricsService()
+	err := telemetry.NewHealthHandler(router, *log, metricsService)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize telemetry")
+	}
 
 	server := &http.Server{
 		Addr:         cfg.Address,
@@ -63,7 +87,7 @@ func main() {
 
 	log.Info().Msgf("Server starting on %s", cfg.Address)
 
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 
 	if err != nil {
 		log.Fatal().

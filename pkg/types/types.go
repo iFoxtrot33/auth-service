@@ -1,7 +1,8 @@
 package types
 
 type UserInfo struct {
-	ID    string
-	Email string
-	Name  string
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
 }

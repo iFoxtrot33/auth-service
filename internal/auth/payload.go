@@ -1,9 +1,9 @@
 package auth
 
-type AccessResponse struct {
-	AccessToken string `json:"access_token"`
+type CallbackResponse struct {
+	SessionID string `json:"session_id"`
 }
 
 type ErrorResponse struct {
-	Error string `json:"error" example:"Invalid provider"`
+	Error string `json:"error"`
 }

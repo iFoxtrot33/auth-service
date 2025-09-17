@@ -28,8 +28,9 @@ func (g *GoogleProvider) GetAuthURL(state string) string {
 		g.logger.Error().Msg("Empty state provided for Google OAuth URL")
 		return ""
 	}
+	url := g.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
 	g.logger.Info().Msg("Generating Google OAuth URL")
-	return g.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	return url
 }
 
 func (g *GoogleProvider) Authenticate(code string) (types.UserInfo, *oauth2.Token, error) {
@@ -43,6 +44,15 @@ func (g *GoogleProvider) Authenticate(code string) (types.UserInfo, *oauth2.Toke
 		g.logger.Error().Err(err).Msg("Failed to exchange code with Google")
 		return types.UserInfo{}, nil, err
 	}
+	idToken := token.Extra("id_token").(string)
+	g.logger.Info().Str("id_token", idToken).Msg("ID token received")
+
+	g.logger.Debug().
+		Str("access_token", token.AccessToken[:10]+"...").
+		Str("refresh_token", token.RefreshToken).
+		Str("token_type", token.TokenType).
+		Interface("expiry", token.Expiry).
+		Msg("Google OAuth token received")
 
 	client := g.oauthConfig.Client(context.Background(), token)
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
@@ -57,6 +67,7 @@ func (g *GoogleProvider) Authenticate(code string) (types.UserInfo, *oauth2.Toke
 		Email string `json:"email"`
 		Name  string `json:"name"`
 	}
+
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
 		g.logger.Error().Err(err).Msg("Failed to decode Google user info")
 		return types.UserInfo{}, nil, err
